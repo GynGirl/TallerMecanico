@@ -1,0 +1,38 @@
+CREATE DATABASE IF NOT EXISTS taller_control CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE taller_control;
+
+CREATE TABLE users (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  full_name VARCHAR(100) NOT NULL,
+  email VARCHAR(254) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  role ENUM('ADMIN', 'GERENTE', 'RECEPCION', 'TECNICO', 'ALMACEN') NOT NULL DEFAULT 'TECNICO',
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  last_login_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE password_resets (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  token_hash CHAR(64) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_reset_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_reset_token (token_hash), INDEX idx_reset_expiry (expires_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE audit_log (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NULL,
+  action VARCHAR(100) NOT NULL,
+  entity_type VARCHAR(50) NULL,
+  entity_id BIGINT UNSIGNED NULL,
+  ip_address VARCHAR(45) NULL,
+  metadata JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_audit_created (created_at), INDEX idx_audit_entity (entity_type, entity_id)
+) ENGINE=InnoDB;
