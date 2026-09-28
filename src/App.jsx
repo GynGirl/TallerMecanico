@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 const Icon = ({ children }) => <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-line bg-zinc-900/70 text-amber-400">{children}</span>
 
@@ -16,10 +16,35 @@ function Field({ label, type = 'text', placeholder, value, onChange, autoComplet
   </label>
 }
 
+const roleLabels = {
+  ADMIN: 'Administrador',
+  GERENTE: 'Gerente',
+  RECEPCION: 'Recepción',
+  TECNICO: 'Técnico',
+  ALMACEN: 'Almacén'
+}
+
+function Header({ user, onExit }) {
+  return <header className="flex items-center justify-between border-b border-line bg-zinc-950/80 px-5 py-4 backdrop-blur sm:px-8">
+    <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-amber-400 font-black text-zinc-950">T</div><div><p className="font-bold">Taller Control</p><p className="text-xs text-zinc-500">{roleLabels[user.role] || 'Usuario'}</p></div></div>
+    <button onClick={onExit} className="rounded-lg border border-line px-3 py-2 text-sm text-zinc-300 hover:border-zinc-500 hover:text-white">Cerrar sesión</button>
+  </header>
+}
+
+function AdminDashboard({ user, onExit }) {
+  const sections = [['Usuarios y roles', 'Crea perfiles y define permisos por puesto.'], ['Órdenes de reparación', 'Supervisa todas las fases y asignaciones.'], ['Auditoría', 'Consulta acciones y cambios registrados.'], ['Configuración', 'Gestiona datos generales del taller.']]
+  return <main className="min-h-screen bg-ink"><Header user={user} onExit={onExit} /><div className="mx-auto max-w-6xl px-5 py-10 sm:px-8"><p className="text-sm font-semibold tracking-[.2em] text-amber-400">PANEL DE ADMINISTRACIÓN</p><h1 className="mt-3 text-3xl font-bold sm:text-4xl">Hola, {user.name}</h1><p className="mt-3 max-w-2xl text-zinc-500">Tienes acceso completo a la operación, usuarios y configuración del taller.</p><div className="mt-10 grid gap-4 sm:grid-cols-2"><div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-6"><p className="text-sm text-amber-300">Rol activo</p><p className="mt-2 text-2xl font-bold">Administrador</p><p className="mt-4 text-sm text-zinc-400">Control total de registros y permisos.</p></div>{sections.map(([title, description]) => <article key={title} className="rounded-2xl border border-line bg-panel p-6"><h2 className="font-semibold">{title}</h2><p className="mt-2 text-sm leading-relaxed text-zinc-500">{description}</p><button className="mt-5 text-sm font-medium text-amber-400 hover:text-amber-300">Próximamente →</button></article>)}</div></div></main>
+}
+
+function GeneralDashboard({ user, onExit }) {
+  return <main className="min-h-screen bg-ink"><Header user={user} onExit={onExit} /><div className="mx-auto max-w-6xl px-5 py-10 sm:px-8"><p className="text-sm font-semibold tracking-[.2em] text-amber-400">VISTA GENERAL</p><h1 className="mt-3 text-3xl font-bold sm:text-4xl">Hola, {user.name}</h1><p className="mt-3 max-w-2xl text-zinc-500">Consulta y actualiza las órdenes que correspondan a tu función de {roleLabels[user.role]?.toLowerCase()}.</p><div className="mt-10 grid gap-4 sm:grid-cols-3">{[['Mis órdenes', 'Las órdenes asignadas aparecerán aquí.'], ['Actividad reciente', 'Los últimos movimientos del taller.'], ['Mi perfil', 'Datos y permisos de tu cuenta.']].map(([title, description]) => <article key={title} className="rounded-2xl border border-line bg-panel p-6"><h2 className="font-semibold">{title}</h2><p className="mt-2 text-sm leading-relaxed text-zinc-500">{description}</p></article>)}</div></div></main>
+}
+
 export default function App() {
   const [screen, setScreen] = useState('login')
   const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' })
   const [notice, setNotice] = useState('')
+  const [user, setUser] = useState(null)
   const update = key => e => setForm({ ...form, [key]: e.target.value })
   const isLogin = screen === 'login'
   const isRegister = screen === 'register'
@@ -33,11 +58,34 @@ export default function App() {
       const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const data = await response.json()
       if (!response.ok) throw new Error(data.message)
+      if (isLogin) {
+        setUser(data.user)
+        const destination = data.user.role === 'ADMIN' ? '/administracion' : '/inicio'
+        window.history.pushState({}, '', destination)
+        setScreen(data.user.role === 'ADMIN' ? 'admin' : 'general')
+        return
+      }
       setNotice(data.message || 'Solicitud enviada correctamente.')
     } catch (error) {
       setNotice(error.message || 'No fue posible completar la solicitud. Verifica que la API esté en ejecución.')
     }
   }
+  const exit = () => {
+    setUser(null)
+    setForm({ name: '', email: '', password: '', confirm: '' })
+    setNotice('')
+    window.history.pushState({}, '', '/')
+    setScreen('login')
+  }
+  useEffect(() => {
+    const onPopState = () => {
+      if (!user) setScreen('login')
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [user])
+  if (screen === 'admin' && user) return <AdminDashboard user={user} onExit={exit} />
+  if (screen === 'general' && user) return <GeneralDashboard user={user} onExit={exit} />
   const text = isLogin ? ['Bienvenido de nuevo', 'Ingresa para administrar la operación de tu taller.', 'Iniciar sesión'] : isRegister ? ['Crea la cuenta de tu taller', 'El primer usuario se registra como administrador.', 'Crear cuenta'] : ['Recupera tu acceso', 'Te enviaremos las instrucciones a tu correo registrado.', 'Enviar instrucciones']
 
   return <main className="min-h-screen bg-ink selection:bg-amber-400 selection:text-zinc-950">
