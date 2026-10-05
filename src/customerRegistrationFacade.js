@@ -8,7 +8,7 @@ export class CustomerRegistrationFacade {
   }
 
   /** Valida formatos antes de enviar datos personales a la API. */
-  validate(data, photo) {
+  validate(data, photo, photoRequired = true) {
     const required = ['fullName', 'alternateContact', 'age', 'dateOfBirth', 'personalPhone', 'workPhone', 'email', 'street', 'neighborhood', 'municipality', 'state', 'postalCode']
     if (required.some(key => !String(data[key] || '').trim())) return 'Completa todos los campos obligatorios.'
     if (!/^\S+@\S+\.\S+$/.test(data.email)) return 'El correo personal no tiene un formato válido.'
@@ -16,8 +16,9 @@ export class CustomerRegistrationFacade {
     if (!/^\+?[0-9 ()-]{7,25}$/.test(data.personalPhone) || !/^\+?[0-9 ()-]{7,25}$/.test(data.workPhone)) return 'Verifica el formato de los teléfonos.'
     if (!/^\d{5}$/.test(data.postalCode)) return 'El código postal debe tener 5 dígitos.'
     if (!Number.isInteger(Number(data.age)) || Number(data.age) < 0 || Number(data.age) > 120) return 'La edad debe ser un número entre 0 y 120.'
-    if (!photo || !photo.type.startsWith('image/')) return 'Selecciona una imagen válida para la fotografía.'
-    if (photo.size > 7 * 1024 * 1024) return 'La fotografía no puede superar 7 MB.'
+    if (photoRequired && !photo) return 'Selecciona una imagen válida para la fotografía.'
+    if (photo && !photo.type.startsWith('image/')) return 'Selecciona una imagen válida para la fotografía.'
+    if (photo && photo.size > 7 * 1024 * 1024) return 'La fotografía no puede superar 7 MB.'
     return null
   }
 
@@ -31,6 +32,19 @@ export class CustomerRegistrationFacade {
     const response = await fetch('/api/clients', { method: 'POST', headers: { Authorization: `Bearer ${this.token}` }, body: payload })
     const result = await response.json()
     if (!response.ok) throw new Error(result.message || 'No fue posible guardar el usuario.')
+    return result
+  }
+
+  /** Actualiza todos los datos; conserva la fotografía actual si no se reemplaza. */
+  async update(id, data, photo) {
+    const validationError = this.validate(data, photo, false)
+    if (validationError) throw new Error(validationError)
+    const payload = new FormData()
+    Object.entries(data).forEach(([key, value]) => payload.append(key, String(value).trim()))
+    if (photo) payload.append('photo', photo)
+    const response = await fetch(`/api/clients/${id}`, { method: 'PUT', headers: { Authorization: `Bearer ${this.token}` }, body: payload })
+    const result = await response.json()
+    if (!response.ok) throw new Error(result.message || 'No fue posible actualizar el cliente.')
     return result
   }
 }

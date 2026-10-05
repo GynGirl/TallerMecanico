@@ -10,7 +10,7 @@ import rateLimit from 'express-rate-limit'
 import multer from 'multer'
 import { z } from 'zod'
 import { CustomerRepository } from './repositories/customerRepository.js'
-import { CustomerService, DuplicateCustomerError } from './services/customerService.js'
+import { CustomerService, CustomerNotFoundError, DuplicateCustomerError } from './services/customerService.js'
 
 const required = ['DB_HOST', 'DB_USER', 'DB_NAME', 'JWT_SECRET']
 for (const key of required) if (!process.env[key]) console.warn(`[configuración] Falta ${key} en .env`)
@@ -23,7 +23,7 @@ const pool = mysql.createPool({
 const app = express()
 app.disable('x-powered-by')
 app.use(helmet())
-app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173', methods: ['GET', 'POST'], allowedHeaders: ['Content-Type', 'Authorization'] }))
+app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173', methods: ['GET', 'POST', 'PUT'], allowedHeaders: ['Content-Type', 'Authorization'] }))
 app.use(express.json({ limit: '10kb' }))
 const authLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 8, standardHeaders: true, legacyHeaders: false, message: { message: 'Demasiados intentos. Intenta de nuevo en 15 minutos.' } })
 const clientLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { message: 'Demasiadas solicitudes de clientes. Intenta más tarde.' } })
@@ -156,6 +156,31 @@ app.get('/api/clients', authenticate, authorizeRoles('ADMIN', 'RECEPCION'), asyn
   try {
     res.json(await customerRepository.list())
   } catch (error) { next(error) }
+})
+
+/** Endpoint protegido que devuelve todos los datos de un cliente, incluida su foto. */
+app.get('/api/clients/:id', authenticate, authorizeRoles('ADMIN', 'RECEPCION'), async (req, res, next) => {
+  try {
+    const id = z.coerce.number().int().positive().parse(req.params.id)
+    const client = await customerRepository.findById(id)
+    if (!client) return res.status(404).json({ message: 'Cliente no encontrado.' })
+    const { photoData, photoMime, ...details } = client
+    res.json({ ...details, photoUrl: `data:${photoMime};base64,${photoData.toString('base64')}` })
+  } catch (error) { next(error) }
+})
+
+/** Endpoint protegido para actualizar todos los datos de un cliente. */
+app.put('/api/clients/:id', authenticate, authorizeRoles('ADMIN', 'RECEPCION'), clientLimit, photoUpload.single('photo'), async (req, res, next) => {
+  try {
+    const id = z.coerce.number().int().positive().parse(req.params.id)
+    const customer = customerSchema.parse(req.body)
+    await customerService.update(id, customer, req.file || null, req.user.sub, req.ip)
+    res.json({ message: 'Cliente actualizado' })
+  } catch (error) {
+    if (error instanceof CustomerNotFoundError) return res.status(404).json({ message: error.message })
+    if (error instanceof DuplicateCustomerError) return res.status(409).json({ message: error.message })
+    next(error)
+  }
 })
 
 app.use((error, _req, res, _next) => {

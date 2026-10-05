@@ -16,6 +16,8 @@
 | `src/customerRegistrationFacade.js` | `CustomerRegistrationFacade.validate` | Valida el formulario en frontend antes del envío: obligatorios, formato, imagen y máximo de 7 MB. |
 | `src/customerRegistrationFacade.js` | `CustomerRegistrationFacade.register` | Encapsula `FormData`, token Bearer y petición REST; la vista no conoce detalles de transporte. |
 | `src/App.jsx` | `CustomerRegistration` | Vista React de captura del cliente, con la misma apariencia oscura/ámbar de la fase inicial y aviso de resultado. |
+| `src/App.jsx` | `CustomerDetailModal` / `CustomerList` | Presenta el detalle completo y fotografía de cada cliente; permite editar sus datos y reemplazar la imagen para `ADMIN` y `RECEPCION`. |
+| `src/App.jsx` | Consulta de código postal `cp.terio.dev` | Al capturar un CP válido, obtiene `datos`, autocompleta estado y municipio, y convierte colonia en un selector de asentamientos; mantiene captura manual si la API falla o no devuelve resultados. |
 | `src/App.jsx` | `openCustomerRegistration` / `backToDashboard` | Controlan la ruta interna `/clientes/nuevo` y el regreso al panel correspondiente. |
 
 ## 2. Tabla de módulos terminados y pendientes
