@@ -10,20 +10,21 @@
     "server": "node server/index.js"
   },
   "dependencies": {
+    "@tailwindcss/vite": "latest",
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
+    "bcrypt": "latest",
+    "cors": "latest",
+    "dotenv": "latest",
+    "express": "latest",
+    "express-rate-limit": "latest",
+    "helmet": "latest",
+    "jsonwebtoken": "latest",
+    "multer": "^2.4.0",
+    "mysql2": "latest",
     "react": "latest",
     "react-dom": "latest",
     "tailwindcss": "latest",
-    "@tailwindcss/vite": "latest",
-    "express": "latest",
-    "mysql2": "latest",
-    "bcrypt": "latest",
-    "jsonwebtoken": "latest",
-    "zod": "latest",
-    "cors": "latest",
-    "helmet": "latest",
-    "express-rate-limit": "latest",
-    "dotenv": "latest"
+    "vite": "latest",
+    "zod": "latest"
   }
 }

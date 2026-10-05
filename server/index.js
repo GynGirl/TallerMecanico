@@ -7,7 +7,10 @@ import jwt from 'jsonwebtoken'
 import helmet from 'helmet'
 import cors from 'cors'
 import rateLimit from 'express-rate-limit'
+import multer from 'multer'
 import { z } from 'zod'
+import { CustomerRepository } from './repositories/customerRepository.js'
+import { CustomerService, DuplicateCustomerError } from './services/customerService.js'
 
 const required = ['DB_HOST', 'DB_USER', 'DB_NAME', 'JWT_SECRET']
 for (const key of required) if (!process.env[key]) console.warn(`[configuración] Falta ${key} en .env`)
@@ -20,10 +23,60 @@ const pool = mysql.createPool({
 const app = express()
 app.disable('x-powered-by')
 app.use(helmet())
-app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173', methods: ['GET', 'POST'] }))
+app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173', methods: ['GET', 'POST'], allowedHeaders: ['Content-Type', 'Authorization'] }))
 app.use(express.json({ limit: '10kb' }))
 const authLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 8, standardHeaders: true, legacyHeaders: false, message: { message: 'Demasiados intentos. Intenta de nuevo en 15 minutos.' } })
+const clientLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { message: 'Demasiadas solicitudes de clientes. Intenta más tarde.' } })
 const account = z.object({ name: z.string().trim().min(3).max(100).optional(), email: z.string().trim().email().max(254), password: z.string().min(10).max(72) })
+const phone = z.string().trim().regex(/^\+?[0-9 ()-]{7,25}$/, 'Teléfono inválido.')
+const customerSchema = z.object({
+  fullName: z.string().trim().min(3).max(150),
+  alternateContact: z.string().trim().min(3).max(150),
+  age: z.coerce.number().int().min(0).max(120),
+  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  personalPhone: phone,
+  workPhone: phone,
+  email: z.string().trim().email().max(254).transform(value => value.toLowerCase()),
+  workEmail: z.union([z.literal(''), z.string().trim().email().max(254)]).transform(value => value ? value.toLowerCase() : null),
+  street: z.string().trim().min(3).max(150),
+  neighborhood: z.string().trim().min(2).max(100),
+  municipality: z.string().trim().min(2).max(100),
+  state: z.string().trim().min(2).max(100),
+  postalCode: z.string().trim().regex(/^\d{5}$/, 'Código postal inválido.')
+}).superRefine((customer, context) => {
+  const birthDate = new Date(`${customer.dateOfBirth}T00:00:00.000Z`)
+  if (Number.isNaN(birthDate.getTime()) || birthDate.toISOString().slice(0, 10) !== customer.dateOfBirth || birthDate > new Date()) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['dateOfBirth'], message: 'Fecha de nacimiento inválida.' })
+    return
+  }
+  const now = new Date()
+  let calculatedAge = now.getUTCFullYear() - birthDate.getUTCFullYear()
+  const birthdayNotReached = now.getUTCMonth() < birthDate.getUTCMonth() || (now.getUTCMonth() === birthDate.getUTCMonth() && now.getUTCDate() < birthDate.getUTCDate())
+  if (birthdayNotReached) calculatedAge -= 1
+  if (customer.age !== calculatedAge) context.addIssue({ code: z.ZodIssueCode.custom, path: ['age'], message: 'La edad no coincide con la fecha de nacimiento.' })
+})
+const customerRepository = new CustomerRepository(pool)
+const customerService = new CustomerService(pool, customerRepository)
+const photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 7 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, callback) => callback(null, file.mimetype.startsWith('image/'))
+})
+
+/** Verifica la sesión antes de exponer operaciones protegidas. */
+function authenticate(req, res, next) {
+  const [scheme, token] = (req.headers.authorization || '').split(' ')
+  if (scheme !== 'Bearer' || !token) return res.status(401).json({ message: 'Sesión requerida.' })
+  try {
+    req.user = jwt.verify(token, process.env.JWT_SECRET, { issuer: 'taller-control', audience: 'taller-control-client' })
+    next()
+  } catch (_error) { res.status(401).json({ message: 'Sesión inválida o expirada.' }) }
+}
+
+/** Autoriza únicamente los roles declarados por la ruta. */
+function authorizeRoles(...roles) {
+  return (req, res, next) => roles.includes(req.user.role) ? next() : res.status(403).json({ message: 'No tienes permiso para registrar clientes.' })
+}
 
 app.post('/api/auth/register', authLimit, async (req, res, next) => {
   let connection
@@ -85,8 +138,29 @@ app.post('/api/auth/reset-password', authLimit, async (req, res, next) => {
   } catch (error) { next(error) }
 })
 
+/** Endpoint REST protegido para registrar clientes con fotografía. */
+app.post('/api/clients', authenticate, authorizeRoles('ADMIN', 'RECEPCION'), clientLimit, photoUpload.single('photo'), async (req, res, next) => {
+  try {
+    const customer = customerSchema.parse(req.body)
+    if (!req.file) return res.status(400).json({ message: 'La fotografía es obligatoria y debe ser una imagen de máximo 7 MB.' })
+    const id = await customerService.register(customer, req.file, req.user.sub, req.ip)
+    res.status(201).json({ id, message: 'usuario guardado' })
+  } catch (error) {
+    if (error instanceof DuplicateCustomerError) return res.status(409).json({ message: error.message })
+    next(error)
+  }
+})
+
+/** Endpoint REST protegido para consultar el resumen de clientes registrados. */
+app.get('/api/clients', authenticate, authorizeRoles('ADMIN', 'RECEPCION'), async (_req, res, next) => {
+  try {
+    res.json(await customerRepository.list())
+  } catch (error) { next(error) }
+})
+
 app.use((error, _req, res, _next) => {
   if (error instanceof z.ZodError) return res.status(400).json({ message: 'Verifica los datos proporcionados.' })
+  if (error instanceof multer.MulterError) return res.status(400).json({ message: error.code === 'LIMIT_FILE_SIZE' ? 'La fotografía supera el máximo de 7 MB.' : 'No fue posible procesar la fotografía.' })
   console.error(error)
   res.status(500).json({ message: 'Ocurrió un error inesperado.' })
 })
